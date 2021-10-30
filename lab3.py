@@ -11,10 +11,10 @@ Course: CPSC 5520 (Distributed Systems)
 """
 
 from datetime import datetime
+from fxp_bytes_subscriber import serialize_address, unmarshal_message
 import math
 import sys
 import socket
-import fxp_bytes_subscriber as fxp_bytes_sub
 import bellman_ford
 import time
 
@@ -64,8 +64,7 @@ class Subscriber(object):
         Subscribes to the Forex provider using a UDP socket.
         """
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as forex_sock:
-            serialized_address = \
-                fxp_bytes_sub.serialize_address(self.listener_address)
+            serialized_address = serialize_address(self.listener_address)
             # Forex provider expects my serialized address as the message data
             forex_sock.sendto(serialized_address, self.provider_address)
         print('Subscribed to Forex Provider on {} at [{}]'.format(
@@ -115,7 +114,7 @@ class Subscriber(object):
         :param start_time: timestamp of when the quote was received
         :param trade_curr: currency (country) subscriber wants to trade
         """
-        quote_list = fxp_bytes_sub.unmarshal_message(forex_bytes)
+        quote_list = unmarshal_message(forex_bytes)
         for quote in quote_list:
             quote_time = quote['timestamp'].timestamp()
             print(self.print_forex_message(quote))
