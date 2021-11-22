@@ -186,13 +186,7 @@ class Subscriber(object):
         # Continually exchange currency through the arbitrage path
         for i in range(len(conversions)):
             from_curr = conversions[i]
-            if i == len(conversions) - 1:
-                # Need to wrap last currency in the arbitrage cycle
-                # back to the starting currency
-                to_curr = conversions[0]
-            else:
-                to_curr = conversions[i + 1]
-
+            to_curr = conversions[(i + 1) % len(conversions)]  # Wrap to 0
             neg_log_rate = self.graph.get_edge_weight(from_curr, to_curr)
             rate = 10 ** (-1 * neg_log_rate)  # Convert back to exchange rate
             start_amount *= rate  # Keep converting on the exchange rate
@@ -249,7 +243,7 @@ def main():
     """
     # Expects 2 additional arguments
     if len(sys.argv) != 3:
-        print('Usage: lab3.py FOREX_PROVIDER_HOST FOREX_PROVIDER_PORT')
+        print('Usage: subscriber.py FOREX_PROVIDER_HOST FOREX_PROVIDER_PORT')
         exit(1)
 
     host, port = sys.argv[1:]
