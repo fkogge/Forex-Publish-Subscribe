@@ -10,10 +10,6 @@ Date: 10/26/2021
 Course: CPSC 5520 (Distributed Systems)
 """
 
-# Helper constants for indexing the edge data tuple
-WEIGHT_IDX = 0
-TIME_IDX = 1
-
 
 class BellmanFordGraph(object):
     """
@@ -44,7 +40,8 @@ class BellmanFordGraph(object):
             self.graph[from_vertex] = {}
         if to_vertex not in self.graph:
             self.graph[to_vertex] = {}
-        self.graph[from_vertex][to_vertex] = (weight, time)
+
+        self.graph[from_vertex][to_vertex] = weight
 
     def remove_edge(self, from_vertex, to_vertex):
         """
@@ -61,7 +58,7 @@ class BellmanFordGraph(object):
         :param to_vertex: vertex that the other vertex is connected to
         :return: edge weight
         """
-        return self.graph[from_vertex][to_vertex][WEIGHT_IDX]
+        return self.graph[from_vertex][to_vertex]
 
     def has_edge(self, from_vertex, to_vertex):
         """
@@ -112,8 +109,8 @@ class BellmanFordGraph(object):
         # Relax edges 1 less time than the number of vertices
         for i in range(len(self.graph) - 1):
             for u, edges in self.graph.items():
-                for v, edge_data in edges.items():
-                    relaxed_dist = distance[u] + edge_data[WEIGHT_IDX]
+                for v, weight in edges.items():
+                    relaxed_dist = distance[u] + weight
                     if self.can_relax(relaxed_dist, distance[v], tolerance):
                         # Shorter distance found so relax edge and record
                         # predecessor vertex
@@ -122,36 +119,14 @@ class BellmanFordGraph(object):
 
         # Negative cycle detection
         for u, edges in self.graph.items():
-            for v, edge_data in edges.items():
-                relaxed_dist = distance[u] + edge_data[WEIGHT_IDX]
+            for v, weight in edges.items():
+                relaxed_dist = distance[u] + weight
                 if self.can_relax(relaxed_dist, distance[v], tolerance):
                     # Returning any negative edge to indicate there is a
                     # negative cycle
                     return distance, predecessor, (u, v)
 
         return distance, predecessor, None
-
-    def remove_stale_edges(self, time_to_compare, time_limit):
-        """
-        Removes any edges that have been present in the graph for longer than
-        the stale edge time limit. Returns a list of vertexes from which an
-        edge was removed.
-        :param time_to_compare: time to compare the edge timestamp to
-        :param time_limit: how long the edge is allowed to remain in the graph
-        :return: list of edges removed and time that edge had been in the graph
-        """
-        remove_list = []  # To hold list of edges we want to remove
-        for u, edges in self.graph.items():
-            for v, edge_data in edges.items():
-                time_diff = time_to_compare - edge_data[TIME_IDX]
-                if time_diff > time_limit:
-                    remove_list.append(((u, v), time_diff))
-
-        for (u, v), _ in remove_list:
-            self.remove_edge(u, v)
-
-        self.remove_duplicates(remove_list)
-        return remove_list
 
     @staticmethod
     def can_relax(relaxed_dist, orig_dist, tolerance):
@@ -165,19 +140,3 @@ class BellmanFordGraph(object):
         :return: True if can be relaxed, false if cannot be relaxed
         """
         return relaxed_dist + tolerance < orig_dist
-
-    @staticmethod
-    def remove_duplicates(remove_list):
-        """
-        Removes any duplicate vertexes from the list of removed edges. For
-        example, if an edge from vertex A to B and B to A was removed, we
-        count that as duplicates. Removing duplicates from the list of removed
-        edges is mainly for client readability.
-        :param remove_list:
-        :return:
-        """
-        for elem in remove_list:
-            (u, v), time_diff = elem
-            # Remove the reverse edge
-            if ((v, u), time_diff) in remove_list:
-                remove_list.remove(elem)

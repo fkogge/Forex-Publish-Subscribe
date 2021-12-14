@@ -10,13 +10,14 @@ Date: 10/26/2021
 Course: CPSC 5520 (Distributed Systems)
 """
 
-from datetime import datetime
-from fxp_bytes_subscriber import serialize_address, unmarshal_message
 import math
 import sys
 import socket
-import bellman_ford
 import time
+import bellman_ford
+import fxp_bytes_subscriber as fxp_bytes_sub
+from datetime import datetime
+
 
 LISTENER_ADDRESS = ('localhost', 0)  # Subscriber address
 SUBSCRIPTION_TIME = 600  # 600 seconds = 10 minutes
@@ -46,6 +47,7 @@ class Subscriber(object):
         self.provider_address = (host, int(port))
         self.listener, self.listener_address = self.start_listening_server()
         self.resubscribe = True
+        self.market_times = {}
         self.graph = bellman_ford.BellmanFordGraph()
         print('Started up listener on {} at [{}].'
               .format(self.listener_address, self.print_time(datetime.now())))
@@ -64,11 +66,11 @@ class Subscriber(object):
         Subscribes to the Forex provider using a UDP socket.
         """
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as forex_sock:
-            serialized_address = serialize_address(self.listener_address)
+            serialized_address = fxp_bytes_sub.serialize_address(self.listener_address)
             # Forex provider expects my serialized address as the message data
             forex_sock.sendto(serialized_address, self.provider_address)
-        print('Subscribed to Forex Provider on {} at [{}]'.format(
-            self.provider_address, self.print_time(datetime.now())))
+        print('Subscribed to Forex Provider on {} at [{}]'
+              .format(self.provider_address, self.print_time(datetime.now())))
 
     def listen_for_quotes(self, buffer_size=BUFFER_SIZE):
         """
@@ -90,20 +92,14 @@ class Subscriber(object):
             except (OSError, Exception) as e:
                 # If we waited long enough for a message and haven't gotten
                 # anything from the Forex provider, then shutdown
-                print('Current Time: [{}] -> no message received since [{}]: '
-                      'shutting down.'.format(self.print_time(datetime.now()),
-                                              self.print_time(start_time)))
+                print('Current Time: [{}] -> no message received since [{}]: shutting down.'
+                      .format(self.print_time(datetime.now()), self.print_time(start_time)))
                 self.resubscribe = False
 
             else:
                 # Successfully received quote from Forex Provider
                 self.process_quote(forex_byte_data, start_time.timestamp())
-                removed = \
-                    self.graph.remove_stale_edges(datetime.now().timestamp(),
-                                                  IN_FORCE_TIME)
-                for quote, time_diff in removed:
-                    print('Removed stale quote: {} [{}s]'
-                          .format(quote, round(time_diff, 2)))
+                self.remove_stale_quotes()
 
     def process_quote(self, forex_bytes, start_time, trade_curr=MY_CURRENCY):
         """
@@ -114,7 +110,7 @@ class Subscriber(object):
         :param start_time: timestamp of when the quote was received
         :param trade_curr: currency (country) subscriber wants to trade
         """
-        quote_list = unmarshal_message(forex_bytes)
+        quote_list = fxp_bytes_sub.unmarshal_message(forex_bytes)
         for quote in quote_list:
             quote_time = quote['timestamp'].timestamp()
             print(self.print_forex_message(quote))
@@ -125,8 +121,8 @@ class Subscriber(object):
             if math.isclose(start_time, quote_time):
                 price = quote['price']
                 currency_1, currency_2 = quote['cross'].split(' ')
-                self.add_exchange_rates(currency_1, currency_2, price,
-                                        quote_time)
+                self.market_times[(currency_1, currency_2)] = quote_time
+                self.add_exchange_rates(currency_1, currency_2, price, quote_time)
             else:
                 print('Ignoring out of sequence message.')
 
@@ -152,7 +148,6 @@ class Subscriber(object):
         conversions = [currency]
 
         while start_currency != currency:
-            # Avoid infinite cycle by converting back to our starting currency
             if pred[currency] in conversions:
                 # If no exchange rate is present from starting currency
                 while not self.graph.has_edge(start_currency, currency):
@@ -161,6 +156,7 @@ class Subscriber(object):
                     conversions.pop()
                     currency = conversions[-1]
                 currency = start_currency
+
             else:
                 # Backtrack to predecessor of the current currency
                 currency = pred[currency]
@@ -206,6 +202,26 @@ class Subscriber(object):
         # Add forward and reverse quote edges for the provided and inverse rates
         self.graph.add_edge(currency_1, currency_2, neg_log_rate, time)
         self.graph.add_edge(currency_2, currency_1, -1 * neg_log_rate, time)
+
+    def remove_stale_quotes(self):
+        """
+        Removes any market quotes that are stale and should no longer be in
+        force (have been present in currency graph and market time list for
+        longer than IN_FORCE_TIME limit).
+        """
+        remove_list = []
+        for market, quote_time in self.market_times.items():
+            time_diff = datetime.now().timestamp() - quote_time
+            if time_diff > IN_FORCE_TIME:
+                # Have to remove in both directions
+                self.graph.remove_edge(market[0], market[1])
+                self.graph.remove_edge(market[1], market[0])
+                remove_list.append(market)
+                print('Removed stale quote: {}/{} [{}s]'
+                      .format(market[0], market[1], round(time_diff, 2)))
+
+        for market in remove_list:
+            del self.market_times[market]
 
     @staticmethod
     def start_listening_server():
